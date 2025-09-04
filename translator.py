@@ -23,7 +23,7 @@ class TranslationService:
     @staticmethod
     def translate_to_chinese(text: str) -> str:
         try:
-            prompt = (f"Переведи на английский без лишнего, без жирного и курсива, "
+            prompt = (f"Переведи на китайский без лишнего, без жирного и курсива, "
                       f"никаких двойных звездочек для выделения текста, только данный текст: {text}")
             response = giga.chat(prompt)
             translation = response.choices[0].message.content

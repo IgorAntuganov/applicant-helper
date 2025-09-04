@@ -1,3 +1,4 @@
+import os
 from config import bot
 from database import (
     update_user_activity,
@@ -413,7 +414,12 @@ def handle_show_descriptions(call):
 
         description_text += f"<i>{status_text}</i>"
 
-        bot.send_message(call.message.chat.id, description_text, parse_mode='HTML')
+        #bot.send_message(call.message.chat.id, description_text, parse_mode='HTML')
+        if item.get('image_path') and os.path.exists(item['image_path']):
+            with open(item['image_path'], 'rb') as photo:
+                bot.send_photo(call.message.chat.id, photo, caption=description_text, parse_mode='HTML')
+        else:
+            bot.send_message(call.message.chat.id, description_text, parse_mode='HTML')
 
     bot.answer_callback_query(call.id)
 

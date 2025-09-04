@@ -26,6 +26,8 @@ class ChecklistService:
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.translation_service = TranslationService()
+        self.upload_folder = 'uploads'
+        os.makedirs(self.upload_folder, exist_ok=True)
         self.create_tables()
 
     def create_tables(self):
