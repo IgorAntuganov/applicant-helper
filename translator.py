@@ -2,7 +2,7 @@ from gigachat import GigaChat
 
 # Инициализация GigaChat
 giga = GigaChat(
-    credentials="ODMzNjllOTEtNTQ2MS00NWExLWIyNzAtMmM0ZWZhNDgwOTE5OjNmYmYxNjI5LWVkOWItNDkyMS05YzdiLWEzODZmOTUxM2EyMg==",
+    credentials="ODMzNjllOTEtNTQ2MS00NWExLWIyNzAtMmM0ZWZhNDgwOTE5OjRiYmI2MDg2LTk1N2UtNDhmYi05OGFlLTlmZGE3YjVmYmM1Ng==",
     verify_ssl_certs=False
 )
 

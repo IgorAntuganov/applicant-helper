@@ -145,8 +145,9 @@ def view_checklist(call):
 
         if item['image_path'] and os.path.exists(item['image_path']):
             with open(item['image_path'], 'rb') as photo:
+                # Отправляем фото с краткой подписью
                 bot.send_photo(call.message.chat.id, photo,
-                               caption=caption,
+                               caption=caption[:1000] + "...",  # Краткое описание
                                parse_mode='HTML', reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id,
