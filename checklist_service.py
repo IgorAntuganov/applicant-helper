@@ -3,6 +3,8 @@ import sqlite3
 from typing import Optional
 from dataclasses import dataclass
 
+from translator import TranslationService
+
 
 @dataclass
 class ChecklistItem:
@@ -10,6 +12,10 @@ class ChecklistItem:
     order_index: int
     title: str
     description: str
+    title_en: str
+    description_en: str
+    title_zh: str
+    description_zh: str
     image_path: Optional[str]
     is_active: bool
 
@@ -19,6 +25,7 @@ class ChecklistService:
     def __init__(self, db_path='checklist.db'):
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.translation_service = TranslationService()
         self.create_tables()
 
     def create_tables(self):
@@ -39,7 +46,6 @@ class ChecklistService:
             ('not_in_russia_china', '🌍 Еще не в России • 🇨🇳 Китай',),
             ('not_in_russia_belarus', '🌍 Еще не в России • 🇧🇾 Беларусь',),
             ('not_in_russia_ukraine', '🌍 Еще не в России • 🇺🇦 Украина'),
-
         ]
 
         for table_name, description in combinations:
@@ -48,7 +54,11 @@ class ChecklistService:
                     id INTEGER PRIMARY KEY,
                     title TEXT NOT NULL,
                     description TEXT,
-                    image_path TEXT,a
+                    title_en TEXT NOT NULL,
+                    description_en TEXT,
+                    title_zh TEXT NOT NULL,
+                    description_zh TEXT,
+                    image_path TEXT,
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -61,37 +71,45 @@ class ChecklistService:
         try:
             cursor = self.conn.cursor()
 
+            # Переводим текст на английский и китайский
+            title_en = self.translation_service.translate_to_english(title)
+            description_en = self.translation_service.translate_to_english(description) if description else None
+            title_zh = self.translation_service.translate_to_chinese(title)
+            description_zh = self.translation_service.translate_to_chinese(description) if description else None
+
             # Если позиция не указана - добавляем в конец
             if position is None:
                 cursor.execute(f'''
-                    INSERT INTO {checklist_type} (title, description, image_path)
-                    VALUES (?, ?, ?)
-                ''', (title, description, image_path))
+                    INSERT INTO {checklist_type} (title, description, title_en, description_en, title_zh, description_zh, image_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (title, description, title_en, description_en, title_zh, description_zh, image_path))
                 self.conn.commit()
                 return cursor.lastrowid
 
             # Получаем текущие пункты
-            cursor.execute(f'SELECT id, title, description, image_path FROM {checklist_type} ORDER BY id')
+            cursor.execute(
+                f'SELECT id, title, description, title_en, description_en, title_zh, description_zh, image_path FROM {checklist_type} ORDER BY id')
             items = cursor.fetchall()
 
             # Если позиция больше количества элементов - добавляем в конец
             if position >= len(items):
                 cursor.execute(f'''
-                    INSERT INTO {checklist_type} (title, description, image_path)
-                    VALUES (?, ?, ?)
-                ''', (title, description, image_path))
+                    INSERT INTO {checklist_type} (title, description, title_en, description_en, title_zh, description_zh, image_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (title, description, title_en, description_en, title_zh, description_zh, image_path))
                 self.conn.commit()
                 return cursor.lastrowid
 
             # Вставляем новый элемент в конец
             cursor.execute(f'''
-                INSERT INTO {checklist_type} (title, description, image_path)
-                VALUES (?, ?, ?)
-            ''', (title, description, image_path))
+                INSERT INTO {checklist_type} (title, description, title_en, description_en, title_zh, description_zh, image_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (title, description, title_en, description_en, title_zh, description_zh, image_path))
             new_id = cursor.lastrowid
 
             # Получаем все элементы снова (включая новый)
-            cursor.execute(f'SELECT id, title, description, image_path FROM {checklist_type} ORDER BY id')
+            cursor.execute(
+                f'SELECT id, title, description, title_en, description_en, title_zh, description_zh, image_path FROM {checklist_type} ORDER BY id')
             all_items = cursor.fetchall()
 
             # "Сдвигаем" элементы начиная с позиции вставки
@@ -102,15 +120,21 @@ class ChecklistService:
                 # Меняем местами содержимое текущего и предыдущего элемента
                 cursor.execute(f'''
                     UPDATE {checklist_type} 
-                    SET title = ?, description = ?, image_path = ?
+                    SET title = ?, description = ?, title_en = ?, description_en = ?, title_zh = ?, description_zh = ?, image_path = ?
                     WHERE id = ?
-                ''', (prev_item[1], prev_item[2], prev_item[3], current_item[0]))
+                ''', (
+                    prev_item[1], prev_item[2], prev_item[3], prev_item[4],
+                    prev_item[5], prev_item[6], prev_item[7], current_item[0]
+                ))
 
                 cursor.execute(f'''
                     UPDATE {checklist_type} 
-                    SET title = ?, description = ?, image_path = ?
+                    SET title = ?, description = ?, title_en = ?, description_en = ?, title_zh = ?, description_zh = ?, image_path = ?
                     WHERE id = ?
-                ''', (current_item[1], current_item[2], current_item[3], prev_item[0]))
+                ''', (
+                    current_item[1], current_item[2], current_item[3], current_item[4],
+                    current_item[5], current_item[6], current_item[7], prev_item[0]
+                ))
 
             self.conn.commit()
             return new_id
@@ -124,9 +148,26 @@ class ChecklistService:
         try:
             cursor = self.conn.cursor()
             cursor.execute(f'''
-                SELECT * FROM {checklist_type} WHERE is_active = 1 ORDER BY created_at
+                SELECT id, title, description, title_en, description_en, title_zh, description_zh, image_path, is_active, created_at 
+                FROM {checklist_type} WHERE is_active = 1 ORDER BY created_at
             ''')
-            return cursor.fetchall()
+            results = cursor.fetchall()
+
+            items = []
+            for result in results:
+                items.append({
+                    'id': result[0],
+                    'title': result[1],
+                    'description': result[2],
+                    'title_en': result[3],
+                    'description_en': result[4],
+                    'title_zh': result[5],
+                    'description_zh': result[6],
+                    'image_path': result[7],
+                    'is_active': result[8],
+                    'created_at': result[9]
+                })
+            return items
         except Exception as e:
             raise e
 
@@ -135,7 +176,8 @@ class ChecklistService:
         try:
             cursor = self.conn.cursor()
             cursor.execute(f'''
-                SELECT * FROM {checklist_type} WHERE id = ? AND is_active = 1
+                SELECT id, title, description, title_en, description_en, title_zh, description_zh, image_path, is_active, created_at 
+                FROM {checklist_type} WHERE id = ? AND is_active = 1
             ''', (item_id,))
             result = cursor.fetchone()
 
@@ -144,9 +186,13 @@ class ChecklistService:
                     'id': result[0],
                     'title': result[1],
                     'description': result[2],
-                    'image_path': result[3],
-                    'is_active': result[4],
-                    'created_at': result[5]
+                    'title_en': result[3],
+                    'description_en': result[4],
+                    'title_zh': result[5],
+                    'description_zh': result[6],
+                    'image_path': result[7],
+                    'is_active': result[8],
+                    'created_at': result[9]
                 }
             return None
 
@@ -170,4 +216,39 @@ class ChecklistService:
 
         except Exception as e:
             conn.rollback()
+            raise e
+
+    def update_translations(self, checklist_type: str, item_id: int):
+        """Обновляет переводы для существующего элемента"""
+        try:
+            cursor = self.conn.cursor()
+
+            # Получаем текущие данные
+            cursor.execute(f'''
+                SELECT title, description FROM {checklist_type} WHERE id = ?
+            ''', (item_id,))
+            result = cursor.fetchone()
+
+            if result:
+                title, description = result
+
+                # Обновляем переводы
+                title_en = self.translation_service.translate_to_english(title)
+                description_en = self.translation_service.translate_to_english(description) if description else None
+                title_zh = self.translation_service.translate_to_chinese(title)
+                description_zh = self.translation_service.translate_to_chinese(description) if description else None
+
+                # Обновляем запись в базе
+                cursor.execute(f'''
+                    UPDATE {checklist_type} 
+                    SET title_en = ?, description_en = ?, title_zh = ?, description_zh = ?
+                    WHERE id = ?
+                ''', (title_en, description_en, title_zh, description_zh, item_id))
+
+                self.conn.commit()
+                return True
+            return False
+
+        except Exception as e:
+            self.conn.rollback()
             raise e

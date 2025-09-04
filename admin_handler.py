@@ -136,13 +136,15 @@ def view_checklist(call):
     # Отправляем пункты чеклиста
     for index, item in enumerate(items):
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete__{checklist_type}__{item[0]}"))
+        markup.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete__{checklist_type}__{item['id']}"))
 
-        caption = f"<b>#{index + 1}: {item[1]}</b>\n\n{item[2]}\n\n"
+        caption = f"<b>#{index + 1}: {item['title']}</b>\n\n{item['description']}\n\n"
+        caption += f"<b>Английский:</b>\n{item['title_en']}\n{item['description_en']}\n\n"
+        caption += f"<b>Китайский:</b>\n{item['title_zh']}\n{item['description_zh']}\n\n"
         caption += f"📋 Чеклист: {checklist_name}"
 
-        if item[3] and os.path.exists(item[3]):  # image_path
-            with open(item[3], 'rb') as photo:
+        if item['image_path'] and os.path.exists(item['image_path']):
+            with open(item['image_path'], 'rb') as photo:
                 bot.send_photo(call.message.chat.id, photo,
                                caption=caption,
                                parse_mode='HTML', reply_markup=markup)
