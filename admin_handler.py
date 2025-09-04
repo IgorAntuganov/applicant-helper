@@ -15,6 +15,7 @@ CHECKLIST_COMBINATIONS = {
     'not_in_russia_belarus': '🌍 Еще не в России • 🇧🇾 Беларусь',
 }
 
+
 # Загрузка и сохранение админов
 def load_admin_ids():
     try:
@@ -38,7 +39,7 @@ ADMIN_PASSWORD = admin_password
 checklist_service = ChecklistService()
 
 # Хранение временных данных и состояний
-user_states = {}  # Будет хранить текущее состояние пользователя: 'add_title', 'add_description', 'add_image'
+user_states = {}  # Будет хранить текущее состояние пользователя: 'select_position', 'add_title', 'add_description', 'add_image'
 user_data = {}
 
 
@@ -63,6 +64,7 @@ def admin_panel(message):
         "👑 Панель администратора\n\nВыберите чеклист для просмотра:",
         reply_markup=markup
     )
+
 
 @bot.message_handler(commands=['addadmin'])
 def add_admin_command(message):
@@ -89,12 +91,21 @@ def start_adding_to_checklist(call):
 
     checklist_type = call.data.replace('add_to_', '')
 
+    # Получаем текущие пункты чеклиста
+    items = checklist_service.get_items(checklist_type)
+    item_count = len(items)
+
     user_id = call.from_user.id
-    user_states[user_id] = 'add_title'
+    user_states[user_id] = 'select_position'
     user_data[user_id] = {'checklist_type': checklist_type}
 
-    bot.send_message(call.message.chat.id, "Введите заголовок пункта:")
-
+    # Предлагаем выбрать позицию для вставки
+    bot.send_message(call.message.chat.id,
+                     f"📋 Текущее количество пунктов: {item_count}\n"
+                     f"Введите число от 0 до {item_count} для выбора позиции вставки:\n"
+                     f"• 0 - в начало\n"
+                     f"• {item_count} - в конец\n"
+                     f"• Любое другое число - после указанного пункта")
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('view_'))
@@ -117,11 +128,11 @@ def view_checklist(call):
         return
 
     # Отправляем пункты чеклиста
-    for item in items:
+    for index, item in enumerate(items):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete__{checklist_type}__{item[0]}"))
 
-        caption = f"<b>{item[1]}</b>\n\n{item[2]}\n\n"
+        caption = f"<b>#{index + 1}: {item[1]}</b>\n\n{item[2]}\n\n"
         caption += f"📋 Чеклист: {checklist_name}"
 
         if item[3] and os.path.exists(item[3]):  # image_path
@@ -143,33 +154,34 @@ def view_checklist(call):
                      reply_markup=markup)
 
 
-# Обработчик всех текстовых сообщений
-@bot.message_handler(content_types=['text'])
+@bot.message_handler(content_types=['text'], func=lambda message: user_states.get(message.from_user.id) is not None)
 def handle_text_messages(message):
+    print('handle_text_messages')
     user_id = message.from_user.id
     if not is_admin(user_id):
         return
 
     state = user_states.get(user_id)
 
-    if state == 'select_checklist':
-        # Находим ID комбинации по названию
-        selected_combo = None
-        for combo_id, combo_name in CHECKLIST_COMBINATIONS.items():
-            if message.text == combo_name:
-                selected_combo = combo_id
-                break
+    if state == 'select_position':
+        checklist_type = user_data[user_id]['checklist_type']
+        items = checklist_service.get_items(checklist_type)
+        item_count = len(items)
 
-        if selected_combo:
-            user_data[user_id]['checklist_type'] = selected_combo
-            user_states[user_id] = 'add_title'
-            bot.send_message(message.chat.id, "Введите заголовок пункта:", reply_markup=types.ReplyKeyboardRemove())
-        elif message.text == "Отмена":
-            cancel_adding(message)
-        else:
-            bot.send_message(message.chat.id, "Пожалуйста, выберите чеклист из списка")
+        try:
+            position = int(message.text)
+            if 0 <= position <= item_count:
+                user_data[user_id]['position'] = position
+                user_states[user_id] = 'add_title'
+                bot.send_message(message.chat.id, "Введите заголовок пункта:")
+            else:
+                bot.send_message(message.chat.id,
+                                 f"❌ Пожалуйста, введите число от 0 до {item_count}")
+        except ValueError:
+            bot.send_message(message.chat.id,
+                             f"❌ Пожалуйста, введите корректное число от 0 до {item_count}")
 
-    if state == 'add_title':
+    elif state == 'add_title':
         user_data[user_id]['title'] = message.text
         user_states[user_id] = 'add_description'
         bot.send_message(message.chat.id, "Введите описание пункта:")
@@ -259,14 +271,18 @@ def finish_adding_item(message):
 
     try:
         checklist_type = data.get('checklist_type')
+        position = data.get('position', -1)  # По умолчанию -1 (в конец)
+
         item_id = checklist_service.add_item(
             checklist_type,
             data.get('title'),
             data.get('description'),
+            position, # Передаем позицию для вставки
             data.get('image_path')
         )
 
-        bot.send_message(message.chat.id, "✅ Пункт успешно добавлен!", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(message.chat.id, f"✅ Пункт успешно добавлен и занимает позицию {position + 1}!",
+                         reply_markup=types.ReplyKeyboardRemove())
         reset_user_state(user_id)
 
     except Exception as e:

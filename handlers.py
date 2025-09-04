@@ -1,5 +1,5 @@
 from config import bot
-from database import update_user_activity, save_user_to_db, get_user_stats
+from database import update_user_activity, save_user_to_db
 from translations import get_user_language, translations
 from keyboards import create_language_keyboard, create_main_menu_keyboard
 from telebot import types # noqa

@@ -48,17 +48,65 @@ class ChecklistService:
 
         self.conn.commit()
 
-    # checklist_service.py
-    def add_item(self, checklist_type, title, description, image_path=None):
-        """Добавляет пункт в конкретный чеклист"""
+    def add_item(self, checklist_type, title, description, position, image_path=None):
+        """Добавляет пункт в конкретный чеклист на указанную позицию"""
         try:
             cursor = self.conn.cursor()
+
+            # Если позиция не указана - добавляем в конец
+            if position is None:
+                cursor.execute(f'''
+                    INSERT INTO {checklist_type} (title, description, image_path)
+                    VALUES (?, ?, ?)
+                ''', (title, description, image_path))
+                self.conn.commit()
+                return cursor.lastrowid
+
+            # Получаем текущие пункты
+            cursor.execute(f'SELECT id, title, description, image_path FROM {checklist_type} ORDER BY id')
+            items = cursor.fetchall()
+
+            # Если позиция больше количества элементов - добавляем в конец
+            if position >= len(items):
+                cursor.execute(f'''
+                    INSERT INTO {checklist_type} (title, description, image_path)
+                    VALUES (?, ?, ?)
+                ''', (title, description, image_path))
+                self.conn.commit()
+                return cursor.lastrowid
+
+            # Вставляем новый элемент в конец
             cursor.execute(f'''
                 INSERT INTO {checklist_type} (title, description, image_path)
                 VALUES (?, ?, ?)
             ''', (title, description, image_path))
+            new_id = cursor.lastrowid
+
+            # Получаем все элементы снова (включая новый)
+            cursor.execute(f'SELECT id, title, description, image_path FROM {checklist_type} ORDER BY id')
+            all_items = cursor.fetchall()
+
+            # "Сдвигаем" элементы начиная с позиции вставки
+            for i in range(len(all_items) - 1, position, -1):
+                current_item = all_items[i]
+                prev_item = all_items[i - 1]
+
+                # Меняем местами содержимое текущего и предыдущего элемента
+                cursor.execute(f'''
+                    UPDATE {checklist_type} 
+                    SET title = ?, description = ?, image_path = ?
+                    WHERE id = ?
+                ''', (prev_item[1], prev_item[2], prev_item[3], current_item[0]))
+
+                cursor.execute(f'''
+                    UPDATE {checklist_type} 
+                    SET title = ?, description = ?, image_path = ?
+                    WHERE id = ?
+                ''', (current_item[1], current_item[2], current_item[3], prev_item[0]))
+
             self.conn.commit()
-            return cursor.lastrowid
+            return new_id
+
         except Exception as e:
             self.conn.rollback()
             raise e
@@ -95,23 +143,6 @@ class ChecklistService:
             return None
 
         except Exception as e:
-            raise e
-
-    def update_item(self, checklist_type: str, item_id: int, **kwargs):
-        """Обновляет пункт в конкретном чеклисте"""
-        conn = self.conn
-        try:
-            cursor = conn.cursor()
-
-            # Убираем логику работы с картинками
-            set_clause = ", ".join([f"{key} = ?" for key in kwargs.keys()])
-            values = list(kwargs.values()) + [item_id]
-
-            cursor.execute(f"UPDATE {checklist_type} SET {set_clause} WHERE id = ?", values)
-            conn.commit()
-
-        except Exception as e:
-            conn.rollback()
             raise e
 
     def delete_item(self, checklist_type: str, item_id: int):
