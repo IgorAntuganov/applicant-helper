@@ -1,10 +1,19 @@
 import os
 from config import bot
 from checklist_service import ChecklistService
-from telebot import types
+from telebot import types  # noqa
 from secret import admin_password
 import json
 
+# В начале файла изменим CHECKLIST_COMBINATIONS
+CHECKLIST_COMBINATIONS = {
+    'in_russia_kazakhstan': '🇷🇺 Уже в России • 🇰🇿 Казахstan',
+    'in_russia_china': '🇷🇺 Уже в России • 🇨🇳 Китай',
+    'in_russia_belarus': '🇷🇺 Уже в России • 🇧🇾 Беларусь',
+    'not_in_russia_kazakhstan': '🌍 Еще не в России • 🇰🇿 Казахстан',
+    'not_in_russia_china': '🌍 Еще не в России • 🇨🇳 Китай',
+    'not_in_russia_belarus': '🌍 Еще не в России • 🇧🇾 Беларусь',
+}
 
 # Загрузка и сохранение админов
 def load_admin_ids():
@@ -43,12 +52,17 @@ def admin_panel(message):
         bot.send_message(message.chat.id, "⛔ Доступ запрещен")
         return
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("➕ Добавить пункт", callback_data="add_item"))
-    markup.add(types.InlineKeyboardButton("📋 Список пунктов", callback_data="list_items"))
+    markup = types.InlineKeyboardMarkup(row_width=2)
 
-    bot.send_message(message.chat.id, "👑 Панель администратора", reply_markup=markup)
+    # Добавляем кнопки для просмотра каждого чеклиста
+    for combo_id, combo_name in CHECKLIST_COMBINATIONS.items():
+        markup.add(types.InlineKeyboardButton(combo_name, callback_data=f"view_{combo_id}"))
 
+    bot.send_message(
+        message.chat.id,
+        "👑 Панель администратора\n\nВыберите чеклист для просмотра:",
+        reply_markup=markup
+    )
 
 @bot.message_handler(commands=['addadmin'])
 def add_admin_command(message):
@@ -68,27 +82,92 @@ def add_admin_command(message):
         bot.send_message(message.chat.id, "❌ Неверный пароль")
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "add_item")
-def start_adding_item(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('add_to_'))
+def start_adding_to_checklist(call):
     if not is_admin(call.from_user.id):
         return
 
+    checklist_type = call.data.replace('add_to_', '')
+
     user_id = call.from_user.id
     user_states[user_id] = 'add_title'
-    user_data[user_id] = {}
+    user_data[user_id] = {'checklist_type': checklist_type}
 
     bot.send_message(call.message.chat.id, "Введите заголовок пункта:")
+
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('view_'))
+def view_checklist(call):
+    if not is_admin(call.from_user.id):
+        return
+
+    checklist_type = call.data.replace('view_', '')
+    items = checklist_service.get_items(checklist_type)
+    checklist_name = CHECKLIST_COMBINATIONS[checklist_type]
+
+    if not items:
+        # Создаем markup с кнопкой добавления
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("➕ Добавить пункт", callback_data=f"add_to_{checklist_type}"))
+
+        bot.send_message(call.message.chat.id,
+                         f"📭 В чеклисте '{checklist_name}' пока нет пунктов",
+                         reply_markup=markup)
+        return
+
+    # Отправляем пункты чеклиста
+    for item in items:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete__{checklist_type}__{item[0]}"))
+
+        caption = f"<b>{item[1]}</b>\n\n{item[2]}\n\n"
+        caption += f"📋 Чеклист: {checklist_name}"
+
+        if item[3] and os.path.exists(item[3]):  # image_path
+            with open(item[3], 'rb') as photo:
+                bot.send_photo(call.message.chat.id, photo,
+                               caption=caption,
+                               parse_mode='HTML', reply_markup=markup)
+        else:
+            bot.send_message(call.message.chat.id,
+                             caption,
+                             parse_mode='HTML', reply_markup=markup)
+
+    # Также отправляем отдельное сообщение с кнопкой добавления в конце
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("➕ Добавить пункт", callback_data=f"add_to_{checklist_type}"))
+
+    bot.send_message(call.message.chat.id,
+                     f"📋 Чеклист: {checklist_name}\nВсего пунктов: {len(items)}",
+                     reply_markup=markup)
 
 
 # Обработчик всех текстовых сообщений
 @bot.message_handler(content_types=['text'])
 def handle_text_messages(message):
     user_id = message.from_user.id
-
     if not is_admin(user_id):
         return
 
     state = user_states.get(user_id)
+
+    if state == 'select_checklist':
+        # Находим ID комбинации по названию
+        selected_combo = None
+        for combo_id, combo_name in CHECKLIST_COMBINATIONS.items():
+            if message.text == combo_name:
+                selected_combo = combo_id
+                break
+
+        if selected_combo:
+            user_data[user_id]['checklist_type'] = selected_combo
+            user_states[user_id] = 'add_title'
+            bot.send_message(message.chat.id, "Введите заголовок пункта:", reply_markup=types.ReplyKeyboardRemove())
+        elif message.text == "Отмена":
+            cancel_adding(message)
+        else:
+            bot.send_message(message.chat.id, "Пожалуйста, выберите чеклист из списка")
 
     if state == 'add_title':
         user_data[user_id]['title'] = message.text
@@ -142,6 +221,32 @@ def handle_photos(message):
             reset_user_state(user_id)
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
+def delete_item_handler(call):
+    if not is_admin(call.from_user.id):
+        return
+
+    # Разбираем callback_data: delete_{checklist_type}_{item_id}
+    parts = call.data.split('__')
+    if len(parts) >= 3:
+        checklist_type = parts[1]
+        item_id = parts[2]
+        checklist_name = CHECKLIST_COMBINATIONS.get(checklist_type, 'Неизвестный чеклист')
+
+        try:
+            # Удаляем пункт
+            checklist_service.delete_item(checklist_type, item_id)
+
+            # Удаляем сообщение с удаленным пунктом
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+
+            # Отправляем подтверждение
+            bot.send_message(call.message.chat.id, f"✅ Пункт из чеклиста '{checklist_name}' успешно удален!")
+
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Ошибка при удалении: {str(e)}")
+
+
 def cancel_adding(message):
     user_id = message.from_user.id
     bot.send_message(message.chat.id, "❌ Добавление отменено", reply_markup=types.ReplyKeyboardRemove())
@@ -153,7 +258,9 @@ def finish_adding_item(message):
     data = user_data.get(user_id, {})
 
     try:
+        checklist_type = data.get('checklist_type')
         item_id = checklist_service.add_item(
+            checklist_type,
             data.get('title'),
             data.get('description'),
             data.get('image_path')
@@ -172,30 +279,3 @@ def reset_user_state(user_id):
         del user_states[user_id]
     if user_id in user_data:
         del user_data[user_id]
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "list_items")
-def show_items_list(call):
-    if not is_admin(call.from_user.id):
-        return
-
-    items = checklist_service.get_all_active_items()
-
-    if not items:
-        bot.send_message(call.message.chat.id, "📭 Пунктов пока нет")
-        return
-
-    for item in items:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_{item.id}"))
-        markup.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{item.id}"))
-
-        if item.image_path and os.path.exists(item.image_path):
-            with open(item.image_path, 'rb') as photo:
-                bot.send_photo(call.message.chat.id, photo,
-                               caption=f"<b>{item.title}</b>\n\n{item.description}",
-                               parse_mode='HTML', reply_markup=markup)
-        else:
-            bot.send_message(call.message.chat.id,
-                             f"<b>{item.title}</b>\n\n{item.description}",
-                             parse_mode='HTML', reply_markup=markup)

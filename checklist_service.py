@@ -14,91 +14,121 @@ class ChecklistItem:
     is_active: bool
 
 
+# checklist_service.py
 class ChecklistService:
-    def __init__(self):
-        self.upload_folder = "uploads/images/"
-        os.makedirs(self.upload_folder, exist_ok=True)
-        self.init_database()
+    def __init__(self, db_path='checklist.db'):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.create_tables()
 
-    def init_database(self):
-        """Создание базы данных и таблиц если они не существуют"""
-        conn = sqlite3.connect('checklists.db')
-        c = conn.cursor()
+    def create_tables(self):
+        cursor = self.conn.cursor()
 
-        c.execute('''CREATE TABLE IF NOT EXISTS checklist_items
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      order_index INTEGER,
-                      title TEXT,
-                      description TEXT,
-                      image_path TEXT,
-                      is_active BOOLEAN DEFAULT TRUE)''')
+        # Таблица для каждой комбинации статуса и гражданства
+        combinations = [
+            ('in_russia_kazakhstan', 'Уже в России - Казахстан'),
+            ('in_russia_china', 'Уже в России - Китай'),
+            ('in_russia_belarus', 'Уже в России - Беларусь'),
+            ('not_in_russia_kazakhstan', 'Еще не в России - Казахстан'),
+            ('not_in_russia_china', 'Еще не в России - Китай'),
+            ('not_in_russia_belarus', 'Еще не в России - Беларусь'),
+        ]
 
-        conn.commit()
-        conn.close()
-        print("База чеклистов инициализирована")
+        for table_name, description in combinations:
+            cursor.execute(f'''
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id INTEGER PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    image_path TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
 
-    def add_item(self, title: str, description: str, image_path: Optional[str] = None) -> int:
-        conn = sqlite3.connect('checklists.db')
-        c = conn.cursor()
+        self.conn.commit()
 
-        # Получаем максимальный order_index
-        c.execute("SELECT MAX(order_index) FROM checklist_items")
-        max_index = c.fetchone()[0] or 0
+    # checklist_service.py
+    def add_item(self, checklist_type, title, description, image_path=None):
+        """Добавляет пункт в конкретный чеклист"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f'''
+                INSERT INTO {checklist_type} (title, description, image_path)
+                VALUES (?, ?, ?)
+            ''', (title, description, image_path))
+            self.conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            self.conn.rollback()
+            raise e
 
-        c.execute('''INSERT INTO checklist_items 
-                    (order_index, title, description, image_path, is_active)
-                    VALUES (?, ?, ?, ?, ?)''',
-                  (max_index + 1, title, description, image_path, True))
+    def get_items(self, checklist_type):
+        """Получает все пункты конкретного чеклиста"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f'''
+                SELECT * FROM {checklist_type} WHERE is_active = 1 ORDER BY created_at
+            ''')
+            return cursor.fetchall()
+        except Exception as e:
+            raise e
 
-        item_id = c.lastrowid
-        conn.commit()
-        conn.close()
-        return item_id
+    def get_item(self, checklist_type, item_id):
+        """Получает один конкретный пункт из чеклиста"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f'''
+                SELECT * FROM {checklist_type} WHERE id = ? AND is_active = 1
+            ''', (item_id,))
+            result = cursor.fetchone()
 
-    def get_all_active_items(self) -> list[ChecklistItem]:
-        conn = sqlite3.connect('checklists.db')
-        c = conn.cursor()
+            if result:
+                return {
+                    'id': result[0],
+                    'title': result[1],
+                    'description': result[2],
+                    'image_path': result[3],
+                    'is_active': result[4],
+                    'created_at': result[5]
+                }
+            return None
 
-        c.execute('''SELECT id, order_index, title, description, image_path, is_active
-                    FROM checklist_items 
-                    WHERE is_active = TRUE 
-                    ORDER BY order_index''')
+        except Exception as e:
+            raise e
 
-        items = []
-        for row in c.fetchall():
-            items.append(ChecklistItem(*row))
+    def update_item(self, checklist_type: str, item_id: int, **kwargs):
+        """Обновляет пункт в конкретном чеклисте"""
+        conn = self.conn
+        try:
+            cursor = conn.cursor()
 
-        conn.close()
-        return items
+            # Убираем логику работы с картинками
+            set_clause = ", ".join([f"{key} = ?" for key in kwargs.keys()])
+            values = list(kwargs.values()) + [item_id]
 
-    def update_item(self, item_id: int, **kwargs):
-        conn = sqlite3.connect('checklists.db')
-        c = conn.cursor()
+            cursor.execute(f"UPDATE {checklist_type} SET {set_clause} WHERE id = ?", values)
+            conn.commit()
 
-        if 'image_path' in kwargs and kwargs['image_path']:
-            # Удаляем старую картинку если есть
-            c.execute("SELECT image_path FROM checklist_items WHERE id = ?", (item_id,))
-            old_image = c.fetchone()[0]
-            if old_image and os.path.exists(old_image):
-                os.remove(old_image)
+        except Exception as e:
+            conn.rollback()
+            raise e
 
-        set_clause = ", ".join([f"{key} = ?" for key in kwargs.keys()])
-        values = list(kwargs.values()) + [item_id]
+    def delete_item(self, checklist_type: str, item_id: int):
+        print(checklist_type)
+        conn = self.conn
+        try:
+            cursor = conn.cursor()
 
-        c.execute(f"UPDATE checklist_items SET {set_clause} WHERE id = ?", values)
-        conn.commit()
-        conn.close()
+            # Удаляем картинку если есть
+            cursor.execute(f"SELECT image_path FROM {checklist_type} WHERE id = ?", (item_id,))
+            result = cursor.fetchone()
+            if result and result[0] and os.path.exists(result[0]):
+                os.remove(result[0])
 
-    def delete_item(self, item_id: int):
-        conn = sqlite3.connect('checklists.db')
-        c = conn.cursor()
+            cursor.execute(f"DELETE FROM {checklist_type} WHERE id = ?", (item_id,))
+            conn.commit()
 
-        # Удаляем картинку если есть
-        c.execute("SELECT image_path FROM checklist_items WHERE id = ?", (item_id,))
-        image_path = c.fetchone()[0]
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
-
-        c.execute("DELETE FROM checklist_items WHERE id = ?", (item_id,))
-        conn.commit()
-        conn.close()
+        except Exception as e:
+            conn.rollback()
+            raise e
