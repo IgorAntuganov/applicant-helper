@@ -156,7 +156,6 @@ def view_checklist(call):
 
 @bot.message_handler(content_types=['text'], func=lambda message: user_states.get(message.from_user.id) is not None)
 def handle_text_messages(message):
-    print('handle_text_messages')
     user_id = message.from_user.id
     if not is_admin(user_id):
         return
