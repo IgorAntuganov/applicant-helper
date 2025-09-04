@@ -4,7 +4,6 @@ from checklist_service import ChecklistService
 from telebot import types  # noqa
 from secret import admin_password
 import json
-
 # В начале файла изменим CHECKLIST_COMBINATIONS
 CHECKLIST_COMBINATIONS = {
     'in_russia_kazakhstan': '🇷🇺 Уже в России • 🇰🇿 Казахстан',

@@ -14,6 +14,20 @@ def init_database():
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Новая таблица для пройденных пунктов
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_completed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            checklist_type TEXT,
+            item_id INTEGER,
+            item_title TEXT,
+            item_description TEXT,
+            completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -139,3 +153,65 @@ def get_user_data(user_id):
             'citizenship': result[2]
         }
     return None
+# database.py
+def save_completed_item(user_id, checklist_type, item_id, item_title, item_description):
+    """Сохраняет пройденный пункт чек-листа"""
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        INSERT INTO user_completed_items (user_id, checklist_type, item_id, item_title, item_description)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (user_id, checklist_type, item_id, item_title, item_description))
+
+    conn.commit()
+    conn.close()
+
+
+def get_user_completed_items(user_id, checklist_type):
+    """Получает все пройденные пункты пользователя для конкретного чек-листа"""
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT item_id, item_title, item_description, completed_at 
+        FROM user_completed_items 
+        WHERE user_id = ? AND checklist_type = ?
+        ORDER BY completed_at
+    ''', (user_id, checklist_type))
+
+    items = cursor.fetchall()
+    conn.close()
+
+    return items
+
+
+def is_item_completed(user_id, checklist_type, item_id):
+    """Проверяет, пройден ли конкретный пункт пользователем"""
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT id FROM user_completed_items 
+        WHERE user_id = ? AND checklist_type = ? AND item_id = ?
+    ''', (user_id, checklist_type, item_id))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    return result is not None
+
+
+# database.py
+def remove_completed_item(user_id, checklist_type, item_id):
+    """Удаляет отметку о выполнении пункта"""
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        DELETE FROM user_completed_items 
+        WHERE user_id = ? AND checklist_type = ? AND item_id = ?
+    ''', (user_id, checklist_type, item_id))
+
+    conn.commit()
+    conn.close()

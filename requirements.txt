@@ -1,3 +1,2 @@
-pyTelegramBotAPI
 gigachat==0.1.11
 requests==2.31.0

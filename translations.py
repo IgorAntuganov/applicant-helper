@@ -17,7 +17,8 @@ translations = {
         'back': 'Назад 🔙',
         'info': 'Информация',  # Добавлено
         'settings': 'Настройки',  # Добавлено
-        'stats': 'Статистика'  # Добавлено
+        'stats': 'Статистика', # Добавлено
+        'need_registration': '❌ Данные не найдены. Пожалуйста, пройдите регистрацию заново.',
     },
     'english': {
         'welcome': '🇺🇸 Welcome! We are glad to welcome you to our university. This bot will help you with the paperwork for moving to Russia.',
@@ -37,7 +38,8 @@ translations = {
         'back': 'Back 🔙',
         'info': 'Information',  # Добавлено
         'settings': 'Settings',  # Добавлено
-        'stats': 'Statistics'  # Добавлено
+        'stats': 'Statistics',  # Добавлено
+        'need_registration': '❌ Data not found. Please register again.',
     },
     'chinese': {
         'welcome': '🇨🇳 欢迎！很高兴欢迎您来到我们大学。这个机器人将帮助您办理移居俄罗斯的文件。',
@@ -57,7 +59,8 @@ translations = {
         'back': '返回 🔙',
         'info': '信息',  # Добавлено
         'settings': '设置',  # Добавлено
-        'stats': '统计'  # Добавлено
+        'stats': '统计',  # Добавлено
+        'need_registration': '❌ 未找到数据。请重新注册。',
     }
 }
 
@@ -68,3 +71,54 @@ def get_user_language(user_id):
     """Получить язык пользователя, возвращает None если пользователя нет в базе"""
     return get_user_language_from_db(user_id)  # Должна возвращать None если пользователя нет
 
+LANGUAGE_MAPPING = {
+    '🇷🇺 Русский': 'russian',
+    '🇺🇸 English': 'english',
+    '🇨🇳 中文': 'chinese'
+}
+
+STATUS_MAPPING = {
+    'not_in_russia': {
+        'russian': 'Ещё не заехал на территорию РФ',
+        'english': 'Not yet entered Russia',
+        'chinese': '尚未进入俄罗斯'
+    },
+    'in_russia': {
+        'russian': 'Уже нахожусь в России',
+        'english': 'Already in Russia',
+        'chinese': '已经在俄罗斯'
+    }
+}
+
+COUNTRY_MAPPING = {
+    'kazakhstan': {
+        'russian': 'Казахстан',
+        'english': 'Kazakhstan',
+        'chinese': '哈萨克斯坦'
+    },
+    'tajikistan': {
+        'russian': 'Таджикистан',
+        'english': 'Tajikistan',
+        'chinese': '塔吉克斯坦'
+    },
+    'uzbekistan': {
+        'russian': 'Узбекистан',
+        'english': 'Uzbekistan',
+        'chinese': '乌兹别克斯坦'
+    },
+    'china': {
+        'russian': 'Китай',
+        'english': 'China',
+        'chinese': '中国'
+    },
+    'belarus': {
+        'russian': 'Беларусь',
+        'english': 'Belarus',
+        'chinese': '白俄罗斯'
+    },
+    'ukraine': {
+        'russian': 'Украина',
+        'english': 'Ukraine',
+        'chinese': '乌克兰'
+    }
+}

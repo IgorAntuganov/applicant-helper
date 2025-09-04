@@ -48,7 +48,7 @@ class ChecklistService:
                     id INTEGER PRIMARY KEY,
                     title TEXT NOT NULL,
                     description TEXT,
-                    image_path TEXT,
+                    image_path TEXT,a
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

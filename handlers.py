@@ -1,30 +1,66 @@
 from config import bot
-from database import update_user_activity, save_user_to_db, get_user_stats, get_user_language_from_db, \
-    check_user_exists, save_user_status
-from translations import get_user_language, translations
+from database import (
+    update_user_activity,
+    save_user_to_db,
+    get_user_stats,
+    get_user_language_from_db,
+    check_user_exists,
+    save_user_status,
+    get_user_data,
+    save_user_citizenship
+)
+from translations import get_user_language, translations, LANGUAGE_MAPPING, STATUS_MAPPING, COUNTRY_MAPPING
 from keyboards import create_language_keyboard, create_main_menu_keyboard
-from telebot import types  # noqa
-from database import get_user_data, save_user_citizenship
+from telebot import types
+from checklist_service import ChecklistService
+from database import is_item_completed, save_completed_item, remove_completed_item
+# Константы и инициализация
+checklist_service = ChecklistService()
 
+# Вспомогательные функции
+def get_country_mapping():
+    """Создает маппинг текста сообщения на код страны"""
+    mapping = {}
+    for lang in ['russian', 'english', 'chinese']:
+        for country_code in COUNTRY_MAPPING.keys():
+            mapping[translations[lang][country_code]] = country_code
+    return mapping
+
+
+COUNTRY_TEXT_MAPPING = get_country_mapping()
+
+
+def get_status_options():
+    """Возвращает все варианты текста статуса для хэндлера"""
+    options = []
+    for lang in ['russian', 'english', 'chinese']:
+        options.extend([
+            translations[lang]['status_option1'],
+            translations[lang]['status_option2']
+        ])
+    return options
+
+
+def get_menu_options():
+    """Возвращает все варианты текста меню для хэндлера"""
+    return [
+        translations['russian']['menu'],
+        translations['english']['menu'],
+        translations['chinese']['menu']
+    ]
+
+
+# Хэндлеры
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     update_user_activity(user_id)
-
-    # Проверяем, есть ли пользователь в базе
-    user_exists = check_user_exists(user_id)
-
-    if user_exists:
-        # Получаем язык пользователя
-        user_language = get_user_language(user_id)
-        # Показываем приветственное сообщение на выбранном языке
-        show_welcome_message(message.chat.id, user_language)
-    else:
-        # Предлагаем выбрать язык
-        markup = create_language_keyboard()
-        bot.send_message(message.chat.id,
-                         "🌍 Выберите язык / Choose language / 选择语言:",
-                         reply_markup=markup)
+    markup = create_language_keyboard()
+    bot.send_message(
+        message.chat.id,
+        "🌍 Выберите язык / Choose language / 选择语言:",
+        reply_markup=markup
+    )
 
 
 def show_citizenship_choice(chat_id, language):
@@ -40,42 +76,33 @@ def show_citizenship_choice(chat_id, language):
         translations[language]['ukraine']
     ]
 
-    # Добавляем кнопки в две колонки
-    row1 = [types.KeyboardButton(countries[0]), types.KeyboardButton(countries[1])]
-    row2 = [types.KeyboardButton(countries[2]), types.KeyboardButton(countries[3])]
-    row3 = [types.KeyboardButton(countries[4]), types.KeyboardButton(countries[5])]
+    # Добавляем кнопки в три ряда по две кнопки
+    for i in range(0, len(countries), 2):
+        row_buttons = [
+            types.KeyboardButton(countries[i]),
+            types.KeyboardButton(countries[i + 1] if i + 1 < len(countries) else None)
+        ]
+        markup.add(*filter(None, row_buttons))
 
-    markup.add(*row1)
-    markup.add(*row2)
-    markup.add(*row3)
+    bot.send_message(
+        chat_id,
+        translations[language]['citizenship_choice'],
+        reply_markup=markup
+    )
 
-    bot.send_message(chat_id,
-                     translations[language]['citizenship_choice'],
-                     reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text in ['🇷🇺 Русский', '🇺🇸 English', '🇨🇳 中文'])
+@bot.message_handler(func=lambda message: message.text in LANGUAGE_MAPPING.keys())
 def handle_language_selection(message):
     user_id = message.from_user.id
-
-    if message.text == '🇷🇺 Русский':
-        language = 'russian'
-    elif message.text == '🇺🇸 English':
-        language = 'english'
-    elif message.text == '🇨🇳 中文':
-        language = 'chinese'
+    language = LANGUAGE_MAPPING[message.text]
 
     save_user_to_db(user_id, language, message)
-
-    # Показываем приветственное сообщение
     show_welcome_message(message.chat.id, language)
 
 
 def show_welcome_message(chat_id, language):
     """Показать приветственное сообщение на указанном языке"""
-    response = translations[language]['welcome']
-    bot.send_message(chat_id, response)
-
-    # После приветствия показываем выбор статуса
+    bot.send_message(chat_id, translations[language]['welcome'])
     show_status_choice(chat_id, language)
 
 
@@ -88,198 +115,160 @@ def show_status_choice(chat_id, language):
 
     markup.add(btn1, btn2)
 
-    bot.send_message(chat_id,
-                     translations[language]['status_choice'],
-                     reply_markup=markup)
+    bot.send_message(
+        chat_id,
+        translations[language]['status_choice'],
+        reply_markup=markup
+    )
 
 
-@bot.message_handler(func=lambda message: message.text in [
-    translations['russian']['status_option1'],
-    translations['russian']['status_option2'],
-    translations['english']['status_option1'],
-    translations['english']['status_option2'],
-    translations['chinese']['status_option1'],
-    translations['chinese']['status_option2']
-])
+@bot.message_handler(func=lambda message: message.text in get_status_options())
 def handle_status_selection(message):
     user_id = message.from_user.id
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
-    # Определяем выбранный статус
-    if message.text in [translations['russian']['status_option1'],
-                        translations['english']['status_option1'],
-                        translations['chinese']['status_option1']]:
-        status = 'not_in_russia'
-    else:
-        status = 'in_russia'
+    # Определяем статус по тексту сообщения
+    status_texts = [
+        translations['russian']['status_option1'],
+        translations['english']['status_option1'],
+        translations['chinese']['status_option1']
+    ]
+    status = 'not_in_russia' if message.text in status_texts else 'in_russia'
 
-    # Сохраняем статус в базу данных
     save_user_status(user_id, status)
-
-    # Вместо сообщения о выборе статуса показываем выбор гражданства
     show_citizenship_choice(message.chat.id, lang)
 
 
-@bot.message_handler(func=lambda message: message.text in [
-    # Русские названия
-    translations['russian']['kazakhstan'],
-    translations['russian']['tajikistan'],
-    translations['russian']['uzbekistan'],
-    translations['russian']['china'],
-    translations['russian']['belarus'],
-    translations['russian']['ukraine'],
-    # Английские названия
-    translations['english']['kazakhstan'],
-    translations['english']['tajikistan'],
-    translations['english']['uzbekistan'],
-    translations['english']['china'],
-    translations['english']['belarus'],
-    translations['english']['ukraine'],
-    # Китайские названия
-    translations['chinese']['kazakhstan'],
-    translations['chinese']['tajikistan'],
-    translations['chinese']['uzbekistan'],
-    translations['chinese']['china'],
-    translations['chinese']['belarus'],
-    translations['chinese']['ukraine']
-])
+@bot.message_handler(func=lambda message: message.text in COUNTRY_TEXT_MAPPING.keys())
 def handle_citizenship_selection(message):
     user_id = message.from_user.id
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
-    # Определяем выбранную страну
-    country_mapping = {
-        # Русские названия
-        translations['russian']['kazakhstan']: 'kazakhstan',
-        translations['russian']['tajikistan']: 'tajikistan',
-        translations['russian']['uzbekistan']: 'uzbekistan',
-        translations['russian']['china']: 'china',
-        translations['russian']['belarus']: 'belarus',
-        translations['russian']['ukraine']: 'ukraine',
-        # Английские названия
-        translations['english']['kazakhstan']: 'kazakhstan',
-        translations['english']['tajikistan']: 'tajikistan',
-        translations['english']['uzbekistan']: 'uzbekistan',
-        translations['english']['china']: 'china',
-        translations['english']['belarus']: 'belarus',
-        translations['english']['ukraine']: 'ukraine',
-        # Китайские названия
-        translations['chinese']['kazakhstan']: 'kazakhstan',
-        translations['chinese']['tajikistan']: 'tajikistan',
-        translations['chinese']['uzbekistan']: 'uzbekistan',
-        translations['chinese']['china']: 'china',
-        translations['chinese']['belarus']: 'belarus',
-        translations['chinese']['ukraine']: 'ukraine'
-    }
-
-    country_code = country_mapping.get(message.text)
+    country_code = COUNTRY_TEXT_MAPPING.get(message.text)
 
     if country_code:
-        # Сохраняем гражданство в базу данных
         save_user_citizenship(user_id, country_code)
-        # Показываем финальное сообщение с информацией о пользователе
         show_final_message(message.chat.id, user_id, lang, country_code)
 
 
-def show_final_message(chat_id, user_id, language, country_code):
-    """Показать финальное сообщение с информацией о пользователе"""
-    # Получаем данные пользователя
-    user_data = get_user_data(user_id)
-
-    if not user_data:
-        return
-
-    # Маппинг статусов
-    status_names = {
-        'not_in_russia': {
-            'russian': 'Ещё не заехал на территорию РФ',
-            'english': 'Not yet entered Russia',
-            'chinese': '尚未进入俄罗斯'
-        },
-        'in_russia': {
-            'russian': 'Уже нахожусь в России',
-            'english': 'Already in Russia',
-            'chinese': '已经在俄罗斯'
-        }
-    }
-
-    # Маппинг стран
-    country_names = {
-        'kazakhstan': {
-            'russian': 'Казахстан',
-            'english': 'Kazakhstan',
-            'chinese': '哈萨克斯坦'
-        },
-        'tajikistan': {
-            'russian': 'Таджикистан',
-            'english': 'Tajikistan',
-            'chinese': '塔吉克斯坦'
-        },
-        'uzbekistan': {
-            'russian': 'Узбекистан',
-            'english': 'Uzbekistan',
-            'chinese': '乌兹别克斯坦'
-        },
-        'china': {
-            'russian': 'Китай',
-            'english': 'China',
-            'chinese': '中国'
-        },
-        'belarus': {
-            'russian': 'Беларусь',
-            'english': 'Belarus',
-            'chinese': '白俄罗斯'
-        },
-        'ukraine': {
-            'russian': 'Украина',
-            'english': 'Ukraine',
-            'chinese': '乌克兰'
-        }
-    }
-
-    status = status_names[user_data['status']][language]
-    country = country_names[country_code][language]
-
-    # Формируем сообщение
-    if language == 'russian':
-        message_text = f"""✅ Вот чек-лист конкретно для вас:
+# handlers.py
+# handlers.py
+def build_checklist_message(items, language, country, status, user_id, checklist_type):
+    """Строит сообщение с чек-листом только с заголовками"""
+    templates = {
+        'russian': {
+            'header': f"""✅ Ваш персонализированный чек-лист:
 
 📋 Ваши данные:
 • Гражданство: {country}
 • Текущий статус: {status}
 
-📝 Чек-листы в разработке
-Скоро здесь появятся индивидуальные инструкции для вашей ситуации!"""
-
-    elif language == 'english':
-        message_text = f"""✅ Here's a checklist specifically for you:
+📝 Отметьте выполненные пункты:""",
+            'empty': "\n\n📋 Чек-лист пока пуст. Администратор добавит инструкции позже.",
+            'completed': "✅ ",
+            'not_completed': "❌ "
+        },
+        'english': {
+            'header': f"""✅ Your personalized checklist:
 
 📋 Your details:
 • Citizenship: {country}
 • Current status: {status}
 
-📝 Checklists in development
-Personalized instructions for your situation will be available soon!"""
-
-    else:  # chinese
-        message_text = f"""✅ 这是专门为您准备的清单：
+📝 Mark completed items:""",
+            'empty': "\n\n📋 Checklist is empty. Administrator will add instructions later.",
+            'completed': "✅ ",
+            'not_completed': "❌ "
+        },
+        'chinese': {
+            'header': f"""✅ 您的个性化清单：
 
 📋 您的详细信息：
 • 国籍: {country}
 • 当前状态: {status}
 
-📝 清单开发中
-针对您情况的个性化说明即将推出！"""
+📝 标记已完成的项目：""",
+            'empty': "\n\n📋 清单为空。管理员稍后会添加说明。",
+            'completed': "✅ ",
+            'not_completed': "❌ "
+        }
+    }
 
-    # Показываем главное меню
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton(translations[language]['menu']))
+    template = templates[language]
+    message_text = template['header']
 
-    bot.send_message(chat_id, message_text, reply_markup=markup)
+    if items:
+        for index, item in enumerate(items):
+            # Проверяем, выполнен ли пункт
+            is_completed = is_item_completed(user_id, checklist_type, item[0])
+            status_icon = template['completed'] if is_completed else template['not_completed']
 
-# Остальные обработчики остаются без изменений
+            message_text += f"\n{index + 1}. {status_icon}{item[1]}"  # только заголовок
+    else:
+        message_text += template['empty']
+
+    return message_text
+
+
+# handlers.py
+def show_final_message(chat_id, user_id, language, country_code):
+    """Показать финальное сообщение с чек-листом"""
+    user_data = get_user_data(user_id)
+    if not user_data:
+        return
+
+    status = STATUS_MAPPING[user_data['status']][language]
+    country = COUNTRY_MAPPING[country_code][language]
+
+    # Получаем чек-лист
+    checklist_type = f"{user_data['status']}_{country_code}"
+    items = checklist_service.get_items(checklist_type)
+
+    # Строим сообщение только с заголовками
+    message_text = build_checklist_message(items, language, country, status, user_id, checklist_type)
+
+    # Создаем инлайн-кнопки для управления
+    markup = types.InlineKeyboardMarkup(row_width=2)
+
+    # Кнопки для отметки выполнения/снятия отметки
+    for item in items:
+        is_completed = is_item_completed(user_id, checklist_type, item[0])
+        callback_action = "uncomplete" if is_completed else "complete"
+        button_text = "❌ Снять отметку" if is_completed else "✅ Выполнено"
+
+        if language == 'english':
+            button_text = "❌ Unmark" if is_completed else "✅ Complete"
+        elif language == 'chinese':
+            button_text = "❌ 取消标记" if is_completed else "✅ 已完成"
+
+        markup.add(types.InlineKeyboardButton(
+            f"{button_text} #{items.index(item) + 1}",
+            callback_data=f"{callback_action}_{checklist_type}_{item[0]}"
+        ))
+
+    # Кнопки для просмотра описаний
+    if items:
+        markup.add(types.InlineKeyboardButton(
+            "📋 Показать описания" if language == 'russian' else
+            "📋 Show descriptions" if language == 'english' else
+            "📋 显示描述",
+            callback_data=f"descriptions_{checklist_type}"
+        ))
+
+    # Показываем главное меню в reply-клавиатуре
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    reply_markup.add(types.KeyboardButton(translations[language]['menu']))
+
+    # Отправляем сообщение
+    bot.send_message(chat_id, message_text, reply_markup=reply_markup)
+
+    # Отправляем кнопки управления
+    if items:
+        control_text = "Управление пунктами:" if language == 'russian' else "Item management:" if language == 'english' else "项目管理:"
+        bot.send_message(chat_id, control_text, reply_markup=markup)
+
 @bot.message_handler(commands=['help'])
 def send_help(message):
     user_id = message.from_user.id
@@ -288,21 +277,29 @@ def send_help(message):
     bot.send_message(message.chat.id, translations[lang]['help'])
 
 
-@bot.message_handler(func=lambda message: message.text in [
-    translations['russian']['menu'],
-    translations['english']['menu'],
-    translations['chinese']['menu']
-])
+# handlers.py
+# handlers.py
+@bot.message_handler(func=lambda message: message.text in get_menu_options())
 def handle_main_menu(message):
     user_id = message.from_user.id
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
-    markup = create_main_menu_keyboard(lang)
-    bot.send_message(message.chat.id,
-                     f"{translations[lang]['menu']}\n\n{translations[lang]['options']}",
-                     reply_markup=markup)
+    # Получаем данные пользователя из базы
+    user_data = get_user_data(user_id)
 
+    if user_data and user_data.get('status') and user_data.get('citizenship'):
+        # Показываем чек-лист пользователя (только заголовки)
+        show_final_message(message.chat.id, user_id, lang, user_data['citizenship'])
+    else:
+        # Если данных нет, просим пройти регистрацию заново
+        markup = create_main_menu_keyboard(lang)
+        bot.send_message(
+            message.chat.id,
+            translations[lang].get('need_registration',
+                                   '❌ Данные не найдены. Пожалуйста, пройдите регистрацию заново.'),
+            reply_markup=markup
+        )
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -310,30 +307,111 @@ def handle_callback(call):
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
-    if call.data == "info":
-        if lang == 'russian':
-            text = "📚 Это информационная страница!\nЗдесь может быть полезная информация о боте."
-        elif lang == 'english':
-            text = "📚 This is the information page!\nHere can be useful information about the bot."
-        else:
-            text = "📚 这是信息页面！\n这里可以是关于机器人的有用信息."
-        bot.send_message(call.message.chat.id, text)
+    callback_handlers = {
+        'info': lambda: bot.send_message(
+            call.message.chat.id,
+            translations[lang].get('info_text', 'Информация')
+        ),
+        'settings': lambda: send_welcome(call.message),
+    }
 
-    elif call.data == "settings":
-        send_welcome(call.message)
+    handler = callback_handlers.get(call.data)
+    if handler:
+        handler()
 
-    elif call.data == "stats":
-        stats = get_user_stats()
-        if lang == 'russian':
-            text = "📊 Статистика бота:\n"
-            for lang_name, count in stats:
-                text += f"{lang_name}: {count} пользователей\n"
-        elif lang == 'english':
-            text = "📊 Bot statistics:\n"
-            for lang_name, count in stats:
-                text += f"{lang_name}: {count} users\n"
+
+# handlers.py
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complete_'))
+def handle_complete_item(call):
+    user_id = call.from_user.id
+    update_user_activity(user_id)
+    lang = get_user_language(user_id)
+
+    # Разбираем callback_data: complete_{checklist_type}_{item_id}
+    parts = call.data.split('_')
+    if len(parts) >= 3:
+        checklist_type = parts[1]
+        item_id = int(parts[2])
+
+        # Получаем информацию о пункте
+        item = checklist_service.get_item(checklist_type, item_id)
+        if item:
+            # Сохраняем пройденный пункт
+            save_completed_item(user_id, checklist_type, item_id, item['title'], item['description'])
+
+            # Обновляем сообщение
+            bot.answer_callback_query(call.id, "✅ Пункт отмечен как выполненный!")
+
+            # Обновляем список пунктов
+            user_data = get_user_data(user_id)
+            if user_data:
+                country_code = user_data['citizenship']
+                show_final_message(call.message.chat.id, user_id, lang, country_code)
+
+
+# handlers.py
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('complete_', 'uncomplete_')))
+def handle_item_completion(call):
+    user_id = call.from_user.id
+    update_user_activity(user_id)
+    lang = get_user_language(user_id)
+
+    # Разбираем callback_data
+    action, checklist_type, item_id = call.data.split('_', 2)
+    item_id = int(item_id)
+
+    # Получаем информацию о пункте
+    item = checklist_service.get_item(checklist_type, item_id)
+    if item:
+        if action == 'complete':
+            # Сохраняем пройденный пункт
+            save_completed_item(user_id, checklist_type, item_id, item['title'], item['description'])
+            message = "✅ Пункт отмечен как выполненный!" if lang == 'russian' else "✅ Item marked as completed!" if lang == 'english' else "✅ 项目标记为已完成!"
         else:
-            text = "📊 机器人统计:\n"
-            for lang_name, count in stats:
-                text += f"{lang_name}: {count} 用户\n"
-        bot.send_message(call.message.chat.id, text)
+            # Удаляем отметку о выполнении (нужно добавить функцию remove_completed_item)
+            remove_completed_item(user_id, checklist_type, item_id)
+            message = "❌ Отметка о выполнении снята!" if lang == 'russian' else "❌ Completion mark removed!" if lang == 'english' else "❌ 完成标记已移除!"
+
+        bot.answer_callback_query(call.id, message)
+
+        # Обновляем список пунктов
+        user_data = get_user_data(user_id)
+        if user_data:
+            show_final_message(call.message.chat.id, user_id, lang, user_data['citizenship'])
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('descriptions_'))
+def handle_show_descriptions(call):
+    user_id = call.from_user.id
+    update_user_activity(user_id)
+    lang = get_user_language(user_id)
+
+    checklist_type = call.data.replace('descriptions_', '')
+    items = checklist_service.get_items(checklist_type)
+
+    if not items:
+        bot.answer_callback_query(call.id,
+                                  "Нет пунктов для показа" if lang == 'russian' else "No items to show" if lang == 'english' else "没有可显示的项目")
+        return
+
+    # Отправляем описания каждого пункта
+    for index, item in enumerate(items):
+        description_text = f"<b>#{index + 1}: {item[1]}</b>\n\n"
+        if item[2]:  # описание
+            description_text += f"{item[2]}\n\n"
+        else:
+            description_text += "ℹ️ Описание отсутствует\n\n" if lang == 'russian' else "ℹ️ No description available\n\n" if lang == 'english' else "ℹ️ 无描述可用\n\n"
+
+        # Проверяем выполнение
+        is_completed = is_item_completed(user_id, checklist_type, item[0])
+        status_text = "✅ Выполнено" if is_completed else "❌ Не выполнено"
+        if lang == 'english':
+            status_text = "✅ Completed" if is_completed else "❌ Not completed"
+        elif lang == 'chinese':
+            status_text = "✅ 已完成" if is_completed else "❌ 未完成"
+
+        description_text += f"<i>{status_text}</i>"
+
+        bot.send_message(call.message.chat.id, description_text, parse_mode='HTML')
+
+    bot.answer_callback_query(call.id)
