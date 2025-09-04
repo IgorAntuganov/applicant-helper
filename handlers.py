@@ -4,7 +4,7 @@ from database import update_user_activity, save_user_to_db, get_user_stats, get_
 from translations import get_user_language, translations
 from keyboards import create_language_keyboard, create_main_menu_keyboard
 from telebot import types  # noqa
-
+from database import get_user_data, save_user_citizenship
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -26,6 +26,32 @@ def send_welcome(message):
                          "🌍 Выберите язык / Choose language / 选择语言:",
                          reply_markup=markup)
 
+
+def show_citizenship_choice(chat_id, language):
+    """Показать выбор гражданства на указанном языке"""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+
+    countries = [
+        translations[language]['kazakhstan'],
+        translations[language]['tajikistan'],
+        translations[language]['uzbekistan'],
+        translations[language]['china'],
+        translations[language]['belarus'],
+        translations[language]['ukraine']
+    ]
+
+    # Добавляем кнопки в две колонки
+    row1 = [types.KeyboardButton(countries[0]), types.KeyboardButton(countries[1])]
+    row2 = [types.KeyboardButton(countries[2]), types.KeyboardButton(countries[3])]
+    row3 = [types.KeyboardButton(countries[4]), types.KeyboardButton(countries[5])]
+
+    markup.add(*row1)
+    markup.add(*row2)
+    markup.add(*row3)
+
+    bot.send_message(chat_id,
+                     translations[language]['citizenship_choice'],
+                     reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text in ['🇷🇺 Русский', '🇺🇸 English', '🇨🇳 中文'])
 def handle_language_selection(message):
@@ -85,31 +111,173 @@ def handle_status_selection(message):
                         translations['english']['status_option1'],
                         translations['chinese']['status_option1']]:
         status = 'not_in_russia'
-        if lang == 'russian':
-            response = "Вы выбрали: Ещё не заехал на территорию РФ"
-        elif lang == 'english':
-            response = "You selected: Not yet entered Russia"
-        else:
-            response = "您选择了: 尚未进入俄罗斯"
-
     else:
         status = 'in_russia'
-        if lang == 'russian':
-            response = "Вы выбрали: Уже нахожусь в России"
-        elif lang == 'english':
-            response = "You selected: Already in Russia"
-        else:
-            response = "您选择了: 已经在俄罗斯"
 
     # Сохраняем статус в базу данных
     save_user_status(user_id, status)
 
+    # Вместо сообщения о выборе статуса показываем выбор гражданства
+    show_citizenship_choice(message.chat.id, lang)
+
+
+@bot.message_handler(func=lambda message: message.text in [
+    # Русские названия
+    translations['russian']['kazakhstan'],
+    translations['russian']['tajikistan'],
+    translations['russian']['uzbekistan'],
+    translations['russian']['china'],
+    translations['russian']['belarus'],
+    translations['russian']['ukraine'],
+    # Английские названия
+    translations['english']['kazakhstan'],
+    translations['english']['tajikistan'],
+    translations['english']['uzbekistan'],
+    translations['english']['china'],
+    translations['english']['belarus'],
+    translations['english']['ukraine'],
+    # Китайские названия
+    translations['chinese']['kazakhstan'],
+    translations['chinese']['tajikistan'],
+    translations['chinese']['uzbekistan'],
+    translations['chinese']['china'],
+    translations['chinese']['belarus'],
+    translations['chinese']['ukraine']
+])
+def handle_citizenship_selection(message):
+    user_id = message.from_user.id
+    update_user_activity(user_id)
+    lang = get_user_language(user_id)
+
+    # Определяем выбранную страну
+    country_mapping = {
+        # Русские названия
+        translations['russian']['kazakhstan']: 'kazakhstan',
+        translations['russian']['tajikistan']: 'tajikistan',
+        translations['russian']['uzbekistan']: 'uzbekistan',
+        translations['russian']['china']: 'china',
+        translations['russian']['belarus']: 'belarus',
+        translations['russian']['ukraine']: 'ukraine',
+        # Английские названия
+        translations['english']['kazakhstan']: 'kazakhstan',
+        translations['english']['tajikistan']: 'tajikistan',
+        translations['english']['uzbekistan']: 'uzbekistan',
+        translations['english']['china']: 'china',
+        translations['english']['belarus']: 'belarus',
+        translations['english']['ukraine']: 'ukraine',
+        # Китайские названия
+        translations['chinese']['kazakhstan']: 'kazakhstan',
+        translations['chinese']['tajikistan']: 'tajikistan',
+        translations['chinese']['uzbekistan']: 'uzbekistan',
+        translations['chinese']['china']: 'china',
+        translations['chinese']['belarus']: 'belarus',
+        translations['chinese']['ukraine']: 'ukraine'
+    }
+
+    country_code = country_mapping.get(message.text)
+
+    if country_code:
+        # Сохраняем гражданство в базу данных
+        save_user_citizenship(user_id, country_code)
+        # Показываем финальное сообщение с информацией о пользователе
+        show_final_message(message.chat.id, user_id, lang, country_code)
+
+
+def show_final_message(chat_id, user_id, language, country_code):
+    """Показать финальное сообщение с информацией о пользователе"""
+    # Получаем данные пользователя
+    user_data = get_user_data(user_id)
+
+    if not user_data:
+        return
+
+    # Маппинг статусов
+    status_names = {
+        'not_in_russia': {
+            'russian': 'Ещё не заехал на территорию РФ',
+            'english': 'Not yet entered Russia',
+            'chinese': '尚未进入俄罗斯'
+        },
+        'in_russia': {
+            'russian': 'Уже нахожусь в России',
+            'english': 'Already in Russia',
+            'chinese': '已经在俄罗斯'
+        }
+    }
+
+    # Маппинг стран
+    country_names = {
+        'kazakhstan': {
+            'russian': 'Казахстан',
+            'english': 'Kazakhstan',
+            'chinese': '哈萨克斯坦'
+        },
+        'tajikistan': {
+            'russian': 'Таджикистан',
+            'english': 'Tajikistan',
+            'chinese': '塔吉克斯坦'
+        },
+        'uzbekistan': {
+            'russian': 'Узбекистан',
+            'english': 'Uzbekistan',
+            'chinese': '乌兹别克斯坦'
+        },
+        'china': {
+            'russian': 'Китай',
+            'english': 'China',
+            'chinese': '中国'
+        },
+        'belarus': {
+            'russian': 'Беларусь',
+            'english': 'Belarus',
+            'chinese': '白俄罗斯'
+        },
+        'ukraine': {
+            'russian': 'Украина',
+            'english': 'Ukraine',
+            'chinese': '乌克兰'
+        }
+    }
+
+    status = status_names[user_data['status']][language]
+    country = country_names[country_code][language]
+
+    # Формируем сообщение
+    if language == 'russian':
+        message_text = f"""✅ Вот чек-лист конкретно для вас:
+
+📋 Ваши данные:
+• Гражданство: {country}
+• Текущий статус: {status}
+
+📝 Чек-листы в разработке
+Скоро здесь появятся индивидуальные инструкции для вашей ситуации!"""
+
+    elif language == 'english':
+        message_text = f"""✅ Here's a checklist specifically for you:
+
+📋 Your details:
+• Citizenship: {country}
+• Current status: {status}
+
+📝 Checklists in development
+Personalized instructions for your situation will be available soon!"""
+
+    else:  # chinese
+        message_text = f"""✅ 这是专门为您准备的清单：
+
+📋 您的详细信息：
+• 国籍: {country}
+• 当前状态: {status}
+
+📝 清单开发中
+针对您情况的个性化说明即将推出！"""
+
     # Показываем главное меню
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton(translations[lang]['menu']))
+    markup.add(types.KeyboardButton(translations[language]['menu']))
 
-    bot.send_message(message.chat.id, response, reply_markup=markup)
-
+    bot.send_message(chat_id, message_text, reply_markup=markup)
 
 # Остальные обработчики остаются без изменений
 @bot.message_handler(commands=['help'])
