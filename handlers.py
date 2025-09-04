@@ -236,16 +236,16 @@ def show_final_message(chat_id, user_id, language, country_code):
     for item in items:
         is_completed = is_item_completed(user_id, checklist_type, item[0])
         callback_action = "uncomplete" if is_completed else "complete"
-        button_text = "❌ Снять отметку" if is_completed else "✅ Выполнено"
+        button_text = "Снять отметку" if is_completed else "Выполнено"
 
         if language == 'english':
-            button_text = "❌ Unmark" if is_completed else "✅ Complete"
+            button_text = "Unmark" if is_completed else "Complete"
         elif language == 'chinese':
-            button_text = "❌ 取消标记" if is_completed else "✅ 已完成"
+            button_text = "取消标记" if is_completed else "已完成"
 
         markup.add(types.InlineKeyboardButton(
             f"{button_text} #{items.index(item) + 1}",
-            callback_data=f"{callback_action}_{checklist_type}_{item[0]}"
+            callback_data=f"{callback_action}__{checklist_type}__{item[0]}"
         ))
 
     # Кнопки для просмотра описаний
@@ -254,7 +254,7 @@ def show_final_message(chat_id, user_id, language, country_code):
             "📋 Показать описания" if language == 'russian' else
             "📋 Show descriptions" if language == 'english' else
             "📋 显示描述",
-            callback_data=f"descriptions_{checklist_type}"
+            callback_data=f"descriptions__{checklist_type}"
         ))
 
     # Показываем главное меню в reply-клавиатуре
@@ -301,34 +301,16 @@ def handle_main_menu(message):
             reply_markup=markup
         )
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    user_id = call.from_user.id
-    update_user_activity(user_id)
-    lang = get_user_language(user_id)
-
-    callback_handlers = {
-        'info': lambda: bot.send_message(
-            call.message.chat.id,
-            translations[lang].get('info_text', 'Информация')
-        ),
-        'settings': lambda: send_welcome(call.message),
-    }
-
-    handler = callback_handlers.get(call.data)
-    if handler:
-        handler()
-
 
 # handlers.py
-@bot.callback_query_handler(func=lambda call: call.data.startswith('complete_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complete__'))
 def handle_complete_item(call):
     user_id = call.from_user.id
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
     # Разбираем callback_data: complete_{checklist_type}_{item_id}
-    parts = call.data.split('_')
+    parts = call.data.split('__')
     if len(parts) >= 3:
         checklist_type = parts[1]
         item_id = int(parts[2])
@@ -350,14 +332,14 @@ def handle_complete_item(call):
 
 
 # handlers.py
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('complete_', 'uncomplete_')))
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('complete__', 'uncomplete__')))
 def handle_item_completion(call):
     user_id = call.from_user.id
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
     # Разбираем callback_data
-    action, checklist_type, item_id = call.data.split('_', 2)
+    action, checklist_type, item_id = call.data.split('__', 2)
     item_id = int(item_id)
 
     # Получаем информацию о пункте
@@ -386,7 +368,7 @@ def handle_show_descriptions(call):
     update_user_activity(user_id)
     lang = get_user_language(user_id)
 
-    checklist_type = call.data.replace('descriptions_', '')
+    checklist_type = call.data.replace('descriptions__', '')
     items = checklist_service.get_items(checklist_type)
 
     if not items:
@@ -415,3 +397,21 @@ def handle_show_descriptions(call):
         bot.send_message(call.message.chat.id, description_text, parse_mode='HTML')
 
     bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    user_id = call.from_user.id
+    update_user_activity(user_id)
+    lang = get_user_language(user_id)
+
+    callback_handlers = {
+        'info': lambda: bot.send_message(
+            call.message.chat.id,
+            translations[lang].get('info_text', 'Информация')
+        ),
+        'settings': lambda: send_welcome(call.message),
+    }
+
+    handler = callback_handlers.get(call.data)
+    if handler:
+        handler()
