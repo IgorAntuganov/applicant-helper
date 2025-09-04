@@ -1,6 +1,7 @@
 import telebot
 from database import init_database
 from config import bot
+import admin_handler
 import handlers
 
 init_database()
