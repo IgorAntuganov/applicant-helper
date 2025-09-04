@@ -151,7 +151,7 @@ def view_checklist(call):
                                parse_mode='HTML', reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id,
-                             caption,
+                             caption[:1000],
                              parse_mode='HTML', reply_markup=markup)
 
     # Также отправляем отдельное сообщение с кнопкой добавления в конце
