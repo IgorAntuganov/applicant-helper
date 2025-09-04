@@ -59,13 +59,10 @@ def handle_language_selection(message):
 
     if message.text == '🇷🇺 Русский':
         language = 'russian'
-        response = translations['russian']['selected']
     elif message.text == '🇺🇸 English':
         language = 'english'
-        response = translations['english']['selected']
     elif message.text == '🇨🇳 中文':
         language = 'chinese'
-        response = translations['chinese']['selected']
 
     save_user_to_db(user_id, language, message)
 
